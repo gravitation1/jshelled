@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# This script launches a JShell session that also lets you use the code in your
+# current Gradle Java project.
+
+# This function creates a plain text file containing the Java classpath of the
+# current Gradle project and returns the path of the created file.
+createClasspathFile() {
+    # This is the Gradle task name for saving the list of Java class path
+    # dependencies.
+    local saveRuntimeClasspathTaskName='saveRuntimeClasspath'
+    # Create a temporary file to house a custom Gradle init script.
+    local saveRuntimeClasspathScriptFilepath="/tmp/$saveRuntimeClasspathTaskName.gradle"
+    # Create another temporary file to store the classpath data itself.
+    local classpathFile="$(mktemp /tmp/classpath-XXXXX)"
+    # This init script just saves the contents of the current project's Java
+    # classpath to the above temporary file.
+    echo "gradle.projectsLoaded { gradle ->
+        gradle.rootProject {
+            task $saveRuntimeClasspathTaskName {
+                doLast {
+                    def classpath = allprojects.collect { project ->
+                        if (project.plugins.hasPlugin('java')) {
+                            project.sourceSets.main.runtimeClasspath.join(':')
+                        } else {
+                            ''
+                        }
+                    }.join(':')
+                    new File('$classpathFile').text = classpath
+                }
+            }
+        }
+    }" > "$saveRuntimeClasspathScriptFilepath"
+    # Walk up the directory tree until we find the gradlew executable.
+    local gradlewDirectory="$(pwd)"
+    while [[ "$gradlewDirectory" != "/" && ! -e "$gradlewDirectory/gradlew" ]]; do
+        gradlewDirectory="$(dirname "$gradlewDirectory")"
+    done
+    # If we could not find it, bail.
+    if [[ ! -e "$gradlewDirectory/gradlew" ]]; then
+        exit 1
+    fi
+    cd "$gradlewDirectory"
+    # Run the Gradle task to save the Java classpath.
+    ./gradlew \
+        --quiet \
+        --init-script \
+        "$saveRuntimeClasspathScriptFilepath" \
+        "$saveRuntimeClasspathTaskName" \
+        > "/dev/null"
+    echo "$classpathFile"
+}
+# Create the classpath file.
+CLASSPATH_FILEPATH="$(createClasspathFile)"
+# Set the JShell CLASSPATH environment variable to pick up the classpath.
+export CLASSPATH="$(cat "$CLASSPATH_FILEPATH")"
+# Clean up the classpath file.
+rm "$CLASSPATH_FILEPATH"
+# Launch jshell, forwarding any parameters passed along to this script.
+jshell "$@"
