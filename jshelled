@@ -6,6 +6,15 @@
 # This function creates a plain text file containing the Java classpath of the
 # current Gradle project and returns the path of the created file.
 createClasspathFile() {
+    # Walk up the directory tree until we find the gradlew executable.
+    local gradlewDirectory="$(pwd)"
+    while [[ "$gradlewDirectory" != "/" && ! -e "$gradlewDirectory/gradlew" ]]; do
+        gradlewDirectory="$(dirname "$gradlewDirectory")"
+    done
+    # If we could not find it, bail.
+    if [[ ! -e "$gradlewDirectory/gradlew" ]]; then
+        exit 1
+    fi
     # This is the Gradle task name for saving the list of Java class path
     # dependencies.
     local saveRuntimeClasspathTaskName='saveRuntimeClasspath'
@@ -31,15 +40,6 @@ createClasspathFile() {
             }
         }
     }" > "$saveRuntimeClasspathScriptFilepath"
-    # Walk up the directory tree until we find the gradlew executable.
-    local gradlewDirectory="$(pwd)"
-    while [[ "$gradlewDirectory" != "/" && ! -e "$gradlewDirectory/gradlew" ]]; do
-        gradlewDirectory="$(dirname "$gradlewDirectory")"
-    done
-    # If we could not find it, bail.
-    if [[ ! -e "$gradlewDirectory/gradlew" ]]; then
-        exit 1
-    fi
     cd "$gradlewDirectory"
     # Run the Gradle task to save the Java classpath.
     ./gradlew \
@@ -52,9 +52,12 @@ createClasspathFile() {
 }
 # Create the classpath file.
 CLASSPATH_FILEPATH="$(createClasspathFile)"
-# Set the JShell CLASSPATH environment variable to pick up the classpath.
-export CLASSPATH="$(cat "$CLASSPATH_FILEPATH")"
-# Clean up the classpath file.
-rm "$CLASSPATH_FILEPATH"
+# Sanity check we are not fiddling with an unexpected path.
+if [[ "$CLASSPATH_FILEPATH" == /tmp/* ]]; then
+    # Set the JShell CLASSPATH environment variable to pick up the classpath.
+    export CLASSPATH="$(cat "$CLASSPATH_FILEPATH")"
+    # Cleanup.
+    rm "$CLASSPATH_FILEPATH"
+fi
 # Launch jshell, forwarding any parameters passed along to this script.
 jshell "$@"
